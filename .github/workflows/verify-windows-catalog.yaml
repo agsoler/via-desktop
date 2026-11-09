@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: "24"
       - uses: oven-sh/setup-bun@v1
       - run: npm ci
       - name: Build portable ZIP with refreshed VIA assets
