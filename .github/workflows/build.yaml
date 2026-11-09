@@ -75,10 +75,10 @@ jobs:
       - name: Set version to today
         run: npm version $(date +'%Y.%m.%d') --no-git-tag-version
       - name: Publish for ${{ matrix.os }}
-        if: github.event_name != 'pull_request'
+        if: github.repository == 'cebby2420/via-desktop' && github.event_name != 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run publish -- --arch ${{ matrix.arch }}
       - name: Build for ${{ matrix.os }}
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.repository != 'cebby2420/via-desktop'
         run: npm run make -- --arch ${{ matrix.arch }}
