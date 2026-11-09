@@ -52,8 +52,8 @@ the Fira Sans fonts used for key legends, so the labels can draw offline.
 To start the application, run:
 
 ```sh
-./build-via.sh
-npm install
+npm ci
+npm run build:via
 npm start
 ```
 
@@ -77,18 +77,19 @@ npm run prettier
 
 ## Build
 
-To build the application for distribution, run:
+To build a portable Windows x64 ZIP, install Git, Node.js, and Bun, then
+run these commands from the checkout with internet access.
 
 ```sh
-npm run make
+npm ci
+npm run package:portable
 ```
 
-The Windows test build used the web assets from the upstream
-[v2026.5.18 portable package](https://github.com/cebby2420/via-desktop/releases/tag/v2026.5.18).
-To build with the same web assets, copy that package's `resources/public`
-directory to `public` in this checkout. Then run `npm ci` and
-`npm run package -- --platform=win32 --arch=x64`. The app is generated
-under `out/`. The bundled fonts have their own
+The ZIP is generated under `out/make`. The command runs VIA's upstream
+`refresh-kbs` step before building its web assets and checks that every
+entry in the generated catalog has a matching definition. CI uses the
+same asset build. For other distribution targets, run `npm run build:via`
+before `npm run make`. The bundled fonts have their own
 [copyright and licence notices](desktop-fonts/README.md).
 
 ## License

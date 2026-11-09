@@ -5,12 +5,14 @@
   "description": "My Electron application description",
   "main": ".vite/build/main.js",
   "scripts": {
-    "test": "node -r ts-node/register/transpile-only --test",
+    "test": "node -r ts-node/register/transpile-only --test tests/*.test.cjs",
     "start": "electron-forge start",
+    "build:via": "node scripts/build-via.cjs",
     "package": "electron-forge package",
+    "package:portable": "npm run build:via && electron-forge make --platform=win32 --arch=x64 --targets=@electron-forge/maker-zip",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx .",
+    "lint": "eslint --ignore-pattern out/ --ext .ts,.tsx .",
     "prettier": "prettier . --write",
     "prettier:check": "prettier . --check"
   },
