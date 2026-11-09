@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: "24"
       - name: Use Bun
         uses: oven-sh/setup-bun@v1
       - name: Build VIA and verify the refreshed catalog
@@ -57,7 +57,7 @@ jobs:
           path: public
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: "24"
       - name: Install dependencies
         run: npm ci
       - name: Set version to today
