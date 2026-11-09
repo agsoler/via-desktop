@@ -1,0 +1,46 @@
+name: Verify Windows portable catalogue
+
+on:
+  push:
+    branches: [codex/verify-windows-catalog]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    if: github.repository == 'agsoler/via-desktop'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - uses: oven-sh/setup-bun@v1
+      - run: npm ci
+      - name: Build portable ZIP with refreshed VIA assets
+        run: npm run package:portable
+      - name: Verify the catalogue inside the portable ZIP
+        shell: pwsh
+        run: |
+          $zips = @(Get-ChildItem -LiteralPath 'out/make/zip/win32/x64' -Filter '*.zip' -File)
+          if ($zips.Count -ne 1) { throw "Expected one portable Windows ZIP." }
+          $extract = Join-Path $env:RUNNER_TEMP 'via-portable-verify'
+          Expand-Archive -LiteralPath $zips[0].FullName -DestinationPath $extract
+          $exe = Get-ChildItem -LiteralPath $extract -Filter 'via-desktop.exe' -File -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "The portable ZIP is missing via-desktop.exe." }
+          $public = Join-Path $exe.DirectoryName 'resources/public'
+          node scripts/check-via-catalog.cjs $public
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $bundle = Get-Content -Raw -LiteralPath (Join-Path $public 'definitions/supported_kbs.json') | ConvertFrom-Json
+          $live = Invoke-RestMethod -Uri 'https://usevia.app/definitions/supported_kbs.json' -TimeoutSec 30
+          foreach ($version in 'v2', 'v3') {
+            $missing = @($live.vendorProductIds.$version | Where-Object { $_ -notin $bundle.vendorProductIds.$version })
+            if ($missing.Count) { throw "The ZIP is missing $($missing.Count) live $version catalogue IDs." }
+          }
+          $count = $bundle.vendorProductIds.v2.Count + $bundle.vendorProductIds.v3.Count
+          $summary = "Verified $count indexed definitions inside the portable ZIP. It covers every ID in the live VIA catalogue."
+          Write-Output $summary
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $summary
