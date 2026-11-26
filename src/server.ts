@@ -12,10 +12,12 @@ import {
   refreshKeyboardDefinition,
 } from "./definitions";
 import log from "electron-log/node";
+import { readImportedDefinitions } from "./imported-definitions";
 
 const defsFileDir = process.argv[2];
 const VIA_BASE_URL = process.argv[3];
 const onlyLocalDefinitions = process.argv[4] === "true";
+const importedDefinitionsDir = process.argv[5];
 
 let viaPublicPath = path.join(process.resourcesPath, "public");
 // In development mode, the resourcesPath does not exist, so we want the public folder from the project directory
@@ -34,6 +36,7 @@ const serveDesktopFonts = serveStatic(path.join(__dirname, "fonts"), {
 const bundledDefinitions = path.join(viaPublicPath, "definitions");
 // Keep the index, hash and device allowlist consistent for this window.
 const catalog = readCatalog(defsFileDir, bundledDefinitions);
+const imported = readImportedDefinitions(importedDefinitionsDir, catalog);
 const bundledHash = readLocalJson(
   path.join(bundledDefinitions, "hash.json"),
 )?.value;
@@ -59,6 +62,9 @@ function refreshDefinition(relativePath: string, id: number) {
 }
 
 async function getDefinition(relativePath: string, id: number) {
+  const importedDefinition = imported.definitions.get(relativePath);
+  if (importedDefinition) return importedDefinition;
+
   const local = readLocalJson(path.join(defsFileDir, relativePath));
   if (local && isKeyboardDefinition(local.value, id)) {
     if (
@@ -97,9 +103,9 @@ const requestHandler = async (
     );
     let value: unknown;
     if (requestPath === "/definitions/supported_kbs.json") {
-      value = catalog.index;
+      value = imported.index;
     } else if (requestPath === "/definitions/hash.json") {
-      value = catalog.hash;
+      value = imported.hash;
     } else if (keyboard) {
       value = await getDefinition(keyboard[1], Number(keyboard[2]));
     }

@@ -87,7 +87,7 @@ async function fetchJson(
   return response.json();
 }
 
-async function saveJson(file: string, value: unknown) {
+export async function saveJson(file: string, value: unknown) {
   const temporary = `${file}.${randomUUID()}.tmp`;
   await fs.promises.mkdir(path.dirname(file), { recursive: true });
   try {

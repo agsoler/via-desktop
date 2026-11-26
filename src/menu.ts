@@ -5,6 +5,7 @@ export const initMenu = (
   downloadKeyboardDefinitions: () => Promise<void>,
   localDefinitionsChanged: () => Promise<void>,
   clearAllowedUnknownDevices: () => Promise<void>,
+  loadDraftDefinition: () => Promise<void>,
 ) => {
   const menu = Menu.buildFromTemplate([
     { role: "appMenu" },
@@ -15,6 +16,10 @@ export const initMenu = (
     {
       label: "Settings",
       submenu: [
+        {
+          label: "Load Draft Definition…",
+          click: loadDraftDefinition,
+        },
         {
           label: "Force download definitions",
           click: downloadKeyboardDefinitions,

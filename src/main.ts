@@ -17,6 +17,11 @@ import process from "process";
 import { refreshCatalog } from "./definitions";
 import log from "electron-log/main";
 import { initMenu } from "./menu";
+import {
+  maxDefinitionBytes,
+  parseImportedDefinition,
+} from "./definition-import";
+import { saveImportedDefinition } from "./imported-definitions";
 import settings from "electron-settings";
 import { updateElectronApp } from "update-electron-app";
 
@@ -30,6 +35,10 @@ const previouslyAllowedDevices = new Set<number>();
 let supportedVendorProductIds = new Set<number>();
 let catalogRefresh: Promise<boolean> | undefined;
 const defsFileDir = path.join(app.getPath("sessionData"), "definitions");
+const importedDefinitionsDir = path.join(
+  app.getPath("userData"),
+  "imported-definitions",
+);
 
 const getVendorProductId = (vendorId: number, productId: number) =>
   vendorId * 65536 + productId;
@@ -112,6 +121,7 @@ const startServer = (): Promise<number> => {
       defsFileDir,
       VIA_BASE_URL,
       settings.getSync("onlyLocalDefinitions").toString(),
+      importedDefinitionsDir,
     ]);
 
     serverProcess.once(
@@ -155,14 +165,20 @@ const createWindow = async () => {
     width: 1200,
     minHeight: 768,
     minWidth: 1024,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+    },
   });
 
   let pickerOpen = false;
 
   // Register a device permission handler that allows access to the devices registered in the VIA definitions files
-  // or previously approved by the user through the unknown-device picker.
+  // or explicitly approved in the desktop import or device picker.
   mainWindow.webContents.session.setDevicePermissionHandler(
     (details: DevicePermissionHandlerHandlerDetails) => {
+      if (details.deviceType !== "hid" || details.origin !== APP_ORIGIN) {
+        return false;
+      }
       const vendorProductId = getVendorProductId(
         Number(details.device.vendorId),
         Number(details.device.productId),
@@ -245,10 +261,75 @@ const createWindow = async () => {
     windowSession.off("select-hid-device", selectHidDevice);
   });
 
-  const reloadDefinitions = async () => {
-    await startServer();
-    await mainWindow.loadURL(APP_ORIGIN);
+  let definitionReload = Promise.resolve();
+  const reloadDefinitions = () => {
+    const reload = definitionReload.then(async () => {
+      if (mainWindow.isDestroyed()) return;
+      await startServer();
+      if (!mainWindow.isDestroyed()) await mainWindow.loadURL(APP_ORIGIN);
+    });
+    definitionReload = reload.catch((error) => {
+      log.warn("Could not reload VIA definitions", error);
+    });
+    return reload;
   };
+
+  let importOpen = false;
+  const loadDraftDefinition = async () => {
+    if (importOpen || mainWindow.isDestroyed()) return;
+    importOpen = true;
+    try {
+      const selection = await dialog.showOpenDialog(mainWindow, {
+        title:
+          "Load a VIA definition and allow USB access to the matching keyboard",
+        buttonLabel: "Load and allow access",
+        properties: ["openFile"],
+        filters: [{ name: "VIA JSON definitions", extensions: ["json"] }],
+      });
+      if (selection.canceled || mainWindow.isDestroyed()) return;
+      const [file] = selection.filePaths;
+      const source = await fs.promises.open(file, "r");
+      let imported;
+      try {
+        const bytes = Buffer.alloc(maxDefinitionBytes + 1);
+        const { bytesRead } = await source.read(bytes);
+        imported = parseImportedDefinition(bytes.subarray(0, bytesRead));
+      } finally {
+        await source.close();
+      }
+      if (mainWindow.isDestroyed()) return;
+      await saveImportedDefinition(
+        importedDefinitionsDir,
+        imported.version,
+        imported.definition,
+      );
+      allowUnknownDevice(imported.definition.vendorProductId);
+      if (!mainWindow.isDestroyed()) await reloadDefinitions();
+    } catch (error) {
+      if (mainWindow.isDestroyed()) return;
+      log.warn("Could not load the VIA definition", error);
+      await dialog.showMessageBox(mainWindow, {
+        type: "error",
+        title: "VIA Desktop",
+        message: "Could not load the VIA definition",
+        detail: error instanceof Error ? error.message : String(error),
+        buttons: ["OK"],
+      });
+    } finally {
+      importOpen = false;
+    }
+  };
+  const contents = mainWindow.webContents;
+  contents.ipc.handle("load-draft-definition", (event) => {
+    const frame = event.senderFrame;
+    if (
+      frame &&
+      frame === contents.mainFrame &&
+      (frame.url === APP_ORIGIN || frame.url.startsWith(APP_ORIGIN + "/"))
+    ) {
+      return loadDraftDefinition();
+    }
+  });
 
   initMenu(
     async () => {
@@ -265,6 +346,7 @@ const createWindow = async () => {
       previouslyAllowedDevices.clear();
       await mainWindow.loadURL(APP_ORIGIN);
     },
+    loadDraftDefinition,
   );
 
   await mainWindow.loadURL(APP_ORIGIN);

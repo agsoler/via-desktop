@@ -1,5 +1,5 @@
 diff --git a/src/components/panes/configure.tsx b/src/components/panes/configure.tsx
-index 0c6e7f2..93ba3bf 100644
+index 0c6e7f2..2ead24f 100644
 --- a/src/components/panes/configure.tsx
 +++ b/src/components/panes/configure.tsx
 @@ -1,6 +1,7 @@
@@ -11,52 +11,17 @@ index 0c6e7f2..93ba3bf 100644
  import ChippyLoader from '../chippy-loader';
  import LoadingText from '../loading-text';
  import {CenterPane, ConfigureBasePane} from './pane';
-@@ -26,7 +27,10 @@ import {Badge} from './configure-panes/badge';
- import {HostKeyboardLayoutBadge} from './configure-panes/host-keyboard-layout-badge';
- import {AccentButtonLarge} from '../inputs/accent-button';
- import {useAppSelector} from 'src/store/hooks';
--import {getSelectedDefinition} from 'src/store/definitionsSlice';
-+import {
-+  getCustomDefinitions,
-+  getSelectedDefinition,
-+} from 'src/store/definitionsSlice';
- import {
-   clearSelectedKey,
-   getLoadProgress,
-@@ -34,10 +38,14 @@ import {
-   setConfigureKeyboardIsSelectable,
- } from 'src/store/keymapSlice';
- import {useDispatch} from 'react-redux';
--import {reloadConnectedDevices} from 'src/store/devicesThunks';
-+import {authorizeDevice, reloadConnectedDevices} from 'src/store/devicesThunks';
- import {getV3MenuComponents} from 'src/store/menusSlice';
- import {getIsMacroFeatureSupported} from 'src/store/macrosSlice';
--import {getConnectedDevices, getSupportedIds} from 'src/store/devicesSlice';
-+import {
-+  getConnectedDevices,
-+  getForceAuthorize,
-+  getSupportedIds,
-+} from 'src/store/devicesSlice';
- import {isElectron} from 'src/utils/running-context';
- import {useAppDispatch} from 'src/store/hooks';
- import {MenuTooltip} from '../inputs/tooltip';
-@@ -181,9 +189,15 @@ const Loader: React.FC<{
-   const theme = useAppSelector(getSelectedTheme);
+@@ -182,6 +183,9 @@ const Loader: React.FC<{
 
    const connectedDevices = useAppSelector(getConnectedDevices);
-+  const forceAuthorize = useAppSelector(getForceAuthorize);
    const supportedIds = useAppSelector(getSupportedIds);
-+  const customDefinitions = useAppSelector(getCustomDefinitions);
-+  const hasSavedDefinition =
-+    isElectron && Object.keys(customDefinitions).length > 0;
++  const desktop = (window as Window & {
++    viaDesktop?: {loadDraftDefinition: () => Promise<void>};
++  }).viaDesktop;
    const noSupportedIds = !Object.values(supportedIds).length;
    const noConnectedDevices = !Object.values(connectedDevices).length;
-+  const showApprovalHelp =
-+    hasSavedDefinition && forceAuthorize && noConnectedDevices;
    const [showButton, setShowButton] = useState<boolean>(false);
-
-   useEffect(() => {
-@@ -199,16 +213,50 @@ const Loader: React.FC<{
+@@ -199,16 +203,46 @@ const Loader: React.FC<{
 
    return (
      <LoaderPane>
@@ -82,29 +47,25 @@ index 0c6e7f2..93ba3bf 100644
 +          <LoadingText isSearching={!selectedDefinition} />
 +        )}
 +        {!selectedDefinition && (
-+          <DiscoveryHelp open={showApprovalHelp}>
++          <DiscoveryHelp>
 +            <summary>
 +              {t('Keyboard not showing up?')}
 +              <FontAwesomeIcon icon={faChevronDown} aria-hidden="true" />
 +            </summary>
 +            <div>
-+              {!hasSavedDefinition && (
-+                <p>{t('Connect your keyboard with a USB data cable.')}</p>
-+              )}
++              <p>{t('Connect your keyboard with a USB data cable.')}</p>
 +              <p>
-+                {hasSavedDefinition
-+                  ? t('Your keyboard definition is loaded.')
-+                  : t(
-+                      'If your keyboard is missing from the VIA catalogue, load the manufacturer’s VIA JSON file.',
-+                    )}
++                {desktop
++                  ? t('If your keyboard is missing from the VIA catalogue, load the manufacturer’s VIA JSON file to allow USB access to the matching keyboard.')
++                  : t('If your keyboard is missing from the VIA catalogue, load the manufacturer’s VIA JSON file.')}
 +              </p>
 +              <HelpAction>
-+                {hasSavedDefinition ? (
++                {desktop ? (
 +                  <button
 +                    type="button"
-+                    onClick={() => dispatch(authorizeDevice())}
++                    onClick={() => void desktop.loadDraftDefinition()}
 +                  >
-+                    {t('Authorize device')}
++                    {t('Load Draft Definition')}
 +                  </button>
 +                ) : (
 +                  <Link href="/design">{t('Load Draft Definition')}</Link>
@@ -117,7 +78,7 @@ index 0c6e7f2..93ba3bf 100644
      </LoaderPane>
    );
  };
-@@ -216,16 +264,101 @@ const Loader: React.FC<{
+@@ -216,16 +250,101 @@ const Loader: React.FC<{
  const LoaderPane = styled(CenterPane)`
    display: flex;
    align-items: center;
@@ -222,7 +183,7 @@ index 0c6e7f2..93ba3bf 100644
  export const ConfigurePane = () => {
    const selectedDefinition = useAppSelector(getSelectedDefinition);
    const loadProgress = useAppSelector(getLoadProgress);
-@@ -313,4 +446,4 @@ const ConfigureGrid = () => {
+@@ -313,4 +432,4 @@ const ConfigureGrid = () => {
        </Grid>
      </>
    );

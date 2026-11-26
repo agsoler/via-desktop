@@ -67,6 +67,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: "src/main.ts",
+        preload: "src/preload.ts",
         server: "src/server.ts",
       },
     },

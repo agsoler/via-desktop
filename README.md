@@ -28,9 +28,11 @@ xattr -d com.apple.quarantine /Users/<me>/Downloads/via-desktop.app
 
 If Configure stays on **Searching for devices…**, open **Keyboard not
 showing up?**. For a keyboard outside the VIA catalogue, choose **Load Draft
-Definition** and open the manufacturer’s VIA JSON file. Return to
-**Configure**, choose **Authorize device**, and select your keyboard.
-VIA Desktop remembers the definition and USB approval on later launches.
+Definition** and select the manufacturer’s VIA JSON file. VIA Desktop saves
+the definition, allows USB access to the matching keyboard, and tries to
+connect. You can also import a definition from **Settings → Load Draft
+Definition…**. **Settings → Clear allowed unknown devices** clears USB approval
+for imported keyboards.
 
 To start the application, run:
 
