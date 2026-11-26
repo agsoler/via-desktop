@@ -4,6 +4,7 @@ import settings from "electron-settings";
 export const initMenu = (
   downloadKeyboardDefinitions: () => Promise<void>,
   localDefinitionsChanged: () => Promise<void>,
+  clearAllowedUnknownDevices: () => Promise<void>,
   connectKeyboard: () => Promise<void>,
 ) => {
   const menu = Menu.buildFromTemplate([
@@ -37,15 +38,8 @@ export const initMenu = (
           },
         },
         {
-          label: "Allow connecting to unknown devices",
-          checked: !!settings.getSync("allowUnknownDevices"),
-          type: "checkbox",
-          click: async () => {
-            await settings.set(
-              "allowUnknownDevices",
-              !(await settings.get("allowUnknownDevices")),
-            );
-          },
+          label: "Clear allowed unknown devices",
+          click: clearAllowedUnknownDevices,
         },
       ],
     },

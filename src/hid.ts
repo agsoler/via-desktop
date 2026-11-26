@@ -1,5 +1,4 @@
 import { BrowserWindow, dialog } from "electron";
-import type { Event, SelectHidDeviceDetails } from "electron";
 import {
   isKeyboardDefinitionV2,
   isKeyboardDefinitionV3,
@@ -44,75 +43,22 @@ function parseViaDefinition(text: unknown) {
   );
 }
 
-export function registerViaHid(
+export type KeyboardPickerRequest = {
+  definitionId?: number;
+  selection?: Promise<number | null>;
+};
+
+export function registerViaConnection(
   window: BrowserWindow,
   origin: string,
   hasCatalogDefinition: (id: number) => boolean,
-  allowUnknownDevices: () => boolean,
+  setPickerRequest: (request?: KeyboardPickerRequest) => void,
 ): () => Promise<void> {
   const contents = window.webContents;
-  const session = contents.session;
   const isViaPage = (url: string) =>
     url === origin || url.startsWith(origin + "/");
   let busy = false;
-  let pickerRequested = false;
   let pendingDefinitionId: number | undefined;
-
-  session.setDevicePermissionHandler(
-    ({ deviceType, origin: requester, device }) =>
-      deviceType === "hid" &&
-      isViaPage(requester) &&
-      (allowUnknownDevices() ||
-        hasCatalogDefinition(
-          Number(device.vendorId) * 65536 + Number(device.productId),
-        )),
-  );
-
-  const chooseDevice = async (
-    event: Event,
-    { frame, deviceList }: SelectHidDeviceDetails,
-    callback: (deviceId?: string) => void,
-  ) => {
-    event.preventDefault();
-    if (
-      !pickerRequested ||
-      contents.isDestroyed() ||
-      frame !== contents.mainFrame ||
-      !isViaPage(frame.url)
-    ) {
-      callback();
-      return;
-    }
-
-    // VIA also asks for a device during background scans. Consume the one
-    // explicit request before awaiting the picker so those scans stay quiet.
-    pickerRequested = false;
-    if (deviceList.length === 0) {
-      callback();
-      return;
-    }
-    try {
-      const cancelId = deviceList.length;
-      const choice = await dialog.showMessageBox(window, {
-        message: "Connect a VIA keyboard",
-        detail: "Choose the keyboard you want VIA Desktop to configure.",
-        buttons: [
-          ...deviceList.map(
-            ({ name, vendorId, productId }) =>
-              `${name || "USB keyboard"} (${vendorId.toString(16)}:${productId.toString(16)})`,
-          ),
-          "Cancel",
-        ],
-        cancelId,
-        defaultId: cancelId,
-      });
-      callback(deviceList[choice.response]?.deviceId);
-    } catch {
-      callback();
-    }
-  };
-  session.on("select-hid-device", chooseDevice);
-  window.on("closed", () => session.off("select-hid-device", chooseDevice));
 
   async function connect(
     text?: unknown,
@@ -138,11 +84,24 @@ export function registerViaHid(
           productId: pendingDefinitionId & 0xffff,
         }),
       };
-      pickerRequested = true;
-      const selectedId: number | null = await contents.executeJavaScript(
+      const request: KeyboardPickerRequest = {
+        definitionId: pendingDefinitionId,
+      };
+      setPickerRequest(request);
+      let selectedId: number | null = await contents.executeJavaScript(
         `(${requestViaKeyboard})(${JSON.stringify(filter)}, ${pendingDefinitionId !== undefined})`,
         true,
       );
+      // VIA can request access during discovery while the explicit request runs.
+      if (selectedId === null && request.selection) {
+        const approvedId = await request.selection;
+        if (
+          request.definitionId === undefined ||
+          approvedId === request.definitionId
+        ) {
+          selectedId = approvedId;
+        }
+      }
       if (selectedId === null) {
         const saved =
           pendingDefinitionId === undefined ? "" : "Definition saved. ";
@@ -181,7 +140,7 @@ export function registerViaHid(
           error instanceof Error ? error.message : "VIA could not connect.",
       };
     } finally {
-      pickerRequested = false;
+      setPickerRequest();
       busy = false;
     }
   }

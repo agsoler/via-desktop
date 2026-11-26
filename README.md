@@ -44,9 +44,9 @@ definition. On later launches, use **Connect VIA keyboard**. The native
 If VIA says your keyboard needs a definition, use **Load VIA definition
 and connect** with the matching VIA JSON file.
 
-The picker opens for an explicit connection request. You can leave
-**Allow connecting to unknown devices** off. The desktop build includes
-the Fira Sans fonts used for key legends, so the labels can draw offline.
+The desktop picker saves approval for each keyboard outside the catalogue.
+Use **Settings → Clear allowed unknown devices** to clear those approvals.
+The desktop build includes the Fira Sans fonts used for offline key legends.
 [Discovery report #40](https://github.com/cebby2420/via-desktop/issues/40)
 
 To start the application, run:
@@ -89,8 +89,8 @@ The ZIP is generated under `out/make`. The command runs VIA's upstream
 `refresh-kbs` step before building its web assets and checks that every
 entry in the generated catalog has a matching definition. CI uses the
 same asset build. For other distribution targets, run `npm run build:via`
-before `npm run make`. The bundled fonts have their own
-[copyright and licence notices](desktop-fonts/README.md).
+before `npm run make`. The bundled Fira Sans font licence ships with the
+application.
 
 ## License
 

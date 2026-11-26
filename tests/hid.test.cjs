@@ -5,7 +5,7 @@ const { runInNewContext } = require("node:vm");
 
 // Exercise the main-process connection handler without launching Electron.
 require.cache[require.resolve("electron")] = { exports: {} };
-const { registerViaHid } = require("../src/hid.ts");
+const { registerViaConnection } = require("../src/hid.ts");
 const {
   hasStoredViaDefinition,
   requestViaKeyboard,
@@ -14,16 +14,19 @@ const {
 const origin = "via-desktop://index.html";
 const device = { vendorId: 1234, productId: 5678 };
 
-async function selectDevice({ catalog = false, stored = false } = {}) {
+async function selectDevice({
+  catalog = false,
+  stored = false,
+  discovery = false,
+} = {}) {
   const window = new EventEmitter();
   const contents = new EventEmitter();
   const mainFrame = {};
   let connect;
   let checkedStoredDefinition = false;
   let reloaded = false;
+  let pickerRequest;
   contents.mainFrame = mainFrame;
-  contents.session = new EventEmitter();
-  contents.session.setDevicePermissionHandler = () => {};
   contents.isDestroyed = () => false;
   contents.getURL = () => origin;
   contents.reload = () => (reloaded = true);
@@ -39,20 +42,32 @@ async function selectDevice({ catalog = false, stored = false } = {}) {
     return runInNewContext(script, {
       navigator: {
         hid: {
-          requestDevice: async () => [device],
+          requestDevice: async () => {
+            assert.equal(pickerRequest.definitionId, undefined);
+            return discovery ? [] : [device];
+          },
         },
       },
     });
   };
   window.webContents = contents;
-  registerViaHid(
+  registerViaConnection(
     window,
     origin,
     () => catalog,
-    () => false,
+    (request) => {
+      if (request && discovery) {
+        request.selection = Promise.resolve(
+          device.vendorId * 65536 + device.productId,
+        );
+      }
+      pickerRequest = request;
+    },
   );
+  const result = await connect({ senderFrame: mainFrame });
+  assert.equal(pickerRequest, undefined);
   return {
-    result: await connect({ senderFrame: mainFrame }),
+    result,
     checkedStoredDefinition,
     reloaded,
   };
@@ -66,6 +81,15 @@ test("explains how to connect a selected keyboard that lacks a VIA definition", 
     result.message,
     /needs a VIA definition.*Load VIA definition and connect/,
   );
+});
+
+test("uses USB approval from a concurrent discovery request", async () => {
+  const { result, reloaded } = await selectDevice({
+    discovery: true,
+    stored: true,
+  });
+  assert.equal(result.granted, true);
+  assert.equal(reloaded, true);
 });
 
 test("reads a selected keyboard with a catalog or previously imported definition", async () => {

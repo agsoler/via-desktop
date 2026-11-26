@@ -27,6 +27,10 @@ if (!fs.existsSync(viaPublicPath)) {
 const serveApplication = serveStatic(viaPublicPath, {
   index: ["index.html"],
 });
+const serveDesktopFonts = serveStatic(path.join(__dirname, "fonts"), {
+  maxAge: "1y",
+  immutable: true,
+});
 const bundledDefinitions = path.join(viaPublicPath, "definitions");
 // Keep the index, hash and device allowlist consistent for this window.
 const catalog = readCatalog(defsFileDir, bundledDefinitions);
@@ -76,71 +80,18 @@ async function getDefinition(relativePath: string, id: number) {
 
   if (!onlyLocalDefinitions) return refreshDefinition(relativePath, id);
 }
-const serveDesktopFonts = serveStatic(
-  path.join(viaPublicPath, "..", "desktop-fonts"),
-);
-const indexHtml = fs
-  .readFileSync(path.join(viaPublicPath, "index.html"), "utf8")
-  .replace(
-    /<link\b[^>]*href=["']https:\/\/fonts\.(?:googleapis|gstatic)\.com[^"']*["'][^>]*>/g,
-    "",
-  )
-  .replace(
-    "</head>",
-    `<link rel="stylesheet" href="/desktop-fonts/fonts.css">
-     <script>document.fonts.load('700 16px "Fira Sans"').catch(() => {});</script>
-     <script>
-       // Read downloaded definitions from the desktop cache on each launch,
-       // so updates take effect even when VIA's catalog hash stays the same.
-       try {
-         const storeKey = "via-app-store";
-         const store = JSON.parse(localStorage.getItem(storeKey));
-         if (store && Object.keys(store.definitions || {}).length) {
-           store.definitions = {};
-           localStorage.setItem(storeKey, JSON.stringify(store));
-         }
-       } catch {}
-     </script>
-     </head>`,
-  );
 
 const requestHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ) => {
-  const requestPath = req.url.split("?")[0];
-  if (
-    (req.method === "GET" || req.method === "HEAD") &&
-    (requestPath === "/" || requestPath === "/index.html")
-  ) {
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.end(req.method === "GET" ? indexHtml : undefined);
-    return;
-  }
+  const requestPath = (req.url ?? "/").split("?")[0];
   if (requestPath.startsWith("/desktop-fonts/")) {
     req.url = req.url.slice("/desktop-fonts".length);
     serveDesktopFonts(req, res, finalhandler(req, res));
     return;
   }
   if (req.method === "GET" || req.method === "HEAD") {
-    if (/^\/assets\/[\w.-]+\.css$/.test(requestPath)) {
-      // VIA's stylesheet also imports Google Fonts, which can block rendering offline.
-      const css = await fs.promises
-        .readFile(path.join(viaPublicPath, requestPath), "utf8")
-        .catch(() => undefined);
-      if (css !== undefined) {
-        res.setHeader("Content-Type", "text/css; charset=utf-8");
-        res.end(
-          req.method === "GET"
-            ? css.replace(
-                /@import\s*(?:"https:\/\/fonts\.googleapis\.com\/[^"]*"|'https:\/\/fonts\.googleapis\.com\/[^']*');/g,
-                "",
-              )
-            : undefined,
-        );
-        return;
-      }
-    }
     const keyboard = /^\/definitions\/(v[23]\/([0-9]+)\.json)$/.exec(
       requestPath,
     );

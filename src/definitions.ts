@@ -11,7 +11,7 @@ type CatalogIndex = {
   vendorProductIds: { v2: number[]; v3: number[] };
 };
 
-type Catalog = { index: CatalogIndex; hash: string };
+export type Catalog = { index: CatalogIndex; hash: string };
 
 type LocalJson = { value: unknown; modifiedAt: number };
 
@@ -54,7 +54,7 @@ function readCatalogPair(dir: string) {
   const index = readLocalJson(path.join(dir, "supported_kbs.json"));
   const hash = readLocalJson(path.join(dir, "hash.json"));
   const catalog = { index: index?.value, hash: hash?.value };
-  if (isCatalog(catalog)) {
+  if (index && hash && isCatalog(catalog)) {
     return { catalog, modifiedAt: Math.min(index.modifiedAt, hash.modifiedAt) };
   }
 }
@@ -67,7 +67,7 @@ function readCachedCatalog(dir: string) {
   return readCatalogPair(dir);
 }
 
-export function readCatalog(cacheDir: string, bundledDir: string) {
+export function readCatalog(cacheDir: string, bundledDir: string): Catalog {
   const local = readCachedCatalog(cacheDir) ?? readCatalogPair(bundledDir);
   if (!local) {
     throw new Error("VIA Desktop has no usable local definition catalog.");
@@ -103,7 +103,7 @@ export async function refreshCatalog(
   baseUrl: string,
   force = false,
   fetcher = fetch,
-) {
+): Promise<boolean> {
   const cached = readCachedCatalog(cacheDir);
   if (!force && cached && Date.now() - cached.modifiedAt < maxCatalogAge) {
     return false;
@@ -132,7 +132,7 @@ export async function refreshCatalog(
   return true;
 }
 
-export function isKeyboardDefinition(value: unknown, id: number) {
+export function isKeyboardDefinition(value: unknown, id: number): boolean {
   return (
     isObject(value) &&
     value.vendorProductId === id &&
@@ -146,7 +146,7 @@ export async function refreshKeyboardDefinition(
   url: URL,
   id: number,
   fetcher = fetch,
-) {
+): Promise<unknown> {
   const value = await fetchJson(fetcher, url);
   if (!isKeyboardDefinition(value, id)) {
     throw new Error(`Invalid keyboard definition for ${id}`);

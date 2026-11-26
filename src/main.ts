@@ -1,4 +1,15 @@
-import { app, BrowserWindow, net, protocol, utilityProcess } from "electron";
+import {
+  app,
+  BrowserWindow,
+  DevicePermissionHandlerHandlerDetails,
+  dialog,
+  Event,
+  net,
+  protocol,
+  SelectHidDeviceDetails,
+  session,
+  utilityProcess,
+} from "electron";
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
@@ -6,7 +17,7 @@ import process from "process";
 import { refreshCatalog } from "./definitions";
 import log from "electron-log/main";
 import { initMenu } from "./menu";
-import { registerViaHid } from "./hid";
+import { registerViaConnection, type KeyboardPickerRequest } from "./hid";
 import settings from "electron-settings";
 import { updateElectronApp } from "update-electron-app";
 
@@ -16,9 +27,28 @@ const APP_ORIGIN = `${APP_SCHEME}://index.html`;
 
 let serverPort: number;
 let serverProcess: ReturnType<typeof utilityProcess.fork>;
+const previouslyAllowedDevices = new Set<number>();
 let supportedVendorProductIds = new Set<number>();
 let catalogRefresh: Promise<boolean> | undefined;
 const defsFileDir = path.join(app.getPath("sessionData"), "definitions");
+
+const getVendorProductId = (vendorId: number, productId: number) =>
+  vendorId * 65536 + productId;
+
+const getAllowedUnknownDevices = (): Set<number> => {
+  const stored = settings.getSync("allowedUnknownDevices");
+  return new Set(
+    Array.isArray(stored)
+      ? stored.filter((id): id is number => typeof id === "number")
+      : [],
+  );
+};
+
+const allowUnknownDevice = (vendorProductId: number) => {
+  const allowed = getAllowedUnknownDevices();
+  allowed.add(vendorProductId);
+  settings.setSync("allowedUnknownDevices", [...allowed]);
+};
 
 const run = (args: string[], done: () => void): void => {
   const updateExe = path.resolve(
@@ -126,28 +156,176 @@ const createWindow = async () => {
     width: 1200,
     minHeight: 768,
     minWidth: 1024,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-    },
+    webPreferences: { preload: path.join(__dirname, "preload.js") },
   });
 
-  const connectKeyboard = registerViaHid(
+  const contents = mainWindow.webContents;
+  const windowSession = contents.session;
+  const dismissedDevices = new Set<number>();
+  let activeSelection: Promise<number | null> | undefined;
+  let pickerRequest: KeyboardPickerRequest | undefined;
+  const connectKeyboard = registerViaConnection(
     mainWindow,
     APP_ORIGIN,
     (id) => supportedVendorProductIds.has(id),
-    () => !!settings.getSync("allowUnknownDevices"),
+    (request) => {
+      if (request) request.selection = activeSelection;
+      pickerRequest = request;
+    },
   );
+
+  // Register a device permission handler that allows access to the devices registered in the VIA definitions files
+  // or previously approved by the user through the unknown-device picker.
+  windowSession.setDevicePermissionHandler(
+    (details: DevicePermissionHandlerHandlerDetails) => {
+      if (details.deviceType !== "hid" || details.origin !== APP_ORIGIN) {
+        return false;
+      }
+      const vendorProductId = getVendorProductId(
+        Number(details.device.vendorId),
+        Number(details.device.productId),
+      );
+      if (previouslyAllowedDevices.has(vendorProductId)) {
+        return true;
+      }
+
+      if (
+        supportedVendorProductIds.has(vendorProductId) ||
+        getAllowedUnknownDevices().has(vendorProductId)
+      ) {
+        log.info(
+          "Allowing device",
+          vendorProductId,
+          "name" in details.device ? details.device.name : "",
+        );
+        previouslyAllowedDevices.add(vendorProductId);
+        return true;
+      }
+
+      return false;
+    },
+  );
+
+  const selectHidDevice = async (
+    event: Event,
+    { frame, deviceList }: SelectHidDeviceDetails,
+    callback: (deviceId?: string) => void,
+  ) => {
+    event.preventDefault();
+    if (
+      contents.isDestroyed() ||
+      frame !== contents.mainFrame ||
+      (frame.url !== APP_ORIGIN && !frame.url.startsWith(APP_ORIGIN + "/"))
+    ) {
+      callback();
+      return;
+    }
+    if (activeSelection) {
+      if (pickerRequest) pickerRequest.selection = activeSelection;
+      callback();
+      return;
+    }
+
+    const request = pickerRequest;
+    const candidates = deviceList.filter((device) => {
+      const id = getVendorProductId(device.vendorId, device.productId);
+      if (!request) return !dismissedDevices.has(id);
+      return request.definitionId === undefined || request.definitionId === id;
+    });
+    if (candidates.length === 0) {
+      callback();
+      return;
+    }
+
+    try {
+      const cancelId = candidates.length;
+      const pick = dialog.showMessageBox(mainWindow, {
+        type: "question",
+        title: request ? "Connect a VIA keyboard" : "Unknown USB Keyboard",
+        message: request
+          ? "Connect a VIA keyboard"
+          : "Allow VIA Desktop to access an unknown keyboard?",
+        detail: request
+          ? "Choose the keyboard you want VIA Desktop to configure."
+          : "This keyboard is not in VIA's built-in device list. Select a device to allow it, or Cancel to ignore it for this session.",
+        buttons: [
+          ...candidates.map(
+            ({ name, vendorId, productId }) =>
+              `${name || "USB keyboard"} (${vendorId.toString(16)}:${productId.toString(16)})`,
+          ),
+          "Cancel",
+        ],
+        cancelId,
+        defaultId: cancelId,
+      });
+      activeSelection = pick.then(
+        ({ response }) => {
+          const chosen = candidates[response];
+          return chosen
+            ? getVendorProductId(chosen.vendorId, chosen.productId)
+            : null;
+        },
+        () => null,
+      );
+      if (request) request.selection = activeSelection;
+
+      const choice = await pick;
+      const chosen = candidates[choice.response];
+      if (chosen) {
+        const vendorProductId = getVendorProductId(
+          chosen.vendorId,
+          chosen.productId,
+        );
+        if (!supportedVendorProductIds.has(vendorProductId)) {
+          log.info(
+            "User approved unknown device",
+            vendorProductId,
+            chosen.name,
+          );
+          allowUnknownDevice(vendorProductId);
+        }
+        previouslyAllowedDevices.add(vendorProductId);
+        callback(chosen.deviceId);
+      } else {
+        for (const device of candidates) {
+          dismissedDevices.add(
+            getVendorProductId(device.vendorId, device.productId),
+          );
+        }
+        callback();
+      }
+    } catch {
+      callback();
+    } finally {
+      activeSelection = undefined;
+    }
+  };
+
+  windowSession.on("select-hid-device", selectHidDevice);
+  mainWindow.on("closed", () => {
+    windowSession.off("select-hid-device", selectHidDevice);
+  });
+
   const reloadDefinitions = async () => {
     await startServer();
     await mainWindow.loadURL(APP_ORIGIN);
   };
+
   initMenu(
     async () => {
-      if (await downloadKeyboardDefinitions(true)) await reloadDefinitions();
+      if (await downloadKeyboardDefinitions(true)) {
+        await reloadDefinitions();
+      }
     },
     async () => {
       await reloadDefinitions();
       void downloadKeyboardDefinitions();
+    },
+    async () => {
+      await settings.set("allowedUnknownDevices", []);
+      previouslyAllowedDevices.clear();
+      dismissedDevices.clear();
+      await mainWindow.loadURL(APP_ORIGIN);
     },
     connectKeyboard,
   );
@@ -161,24 +339,37 @@ const createWindow = async () => {
 app.whenReady().then(async () => {
   protocol.handle(APP_SCHEME, (request) => {
     const baseUrl = `http://localhost:${serverPort}`;
-    const url = new URL(
-      baseUrl + request.url.replace(`${APP_SCHEME}://index.html/`, "/"),
-    );
+    const url = new URL(baseUrl + request.url.replace(`${APP_ORIGIN}/`, "/"));
     // forward everything as-is, we want to support whatever was originally intended
     return fetch(url, { ...request });
   });
 
+  // Redirect Google Fonts requests to the bundled Fira Sans stylesheet so key legends work offline.
+  session.defaultSession.webRequest.onBeforeRequest(
+    {
+      urls: ["https://fonts.googleapis.com/*", "https://fonts.gstatic.com/*"],
+    },
+    (details, callback) => {
+      if (details.url.startsWith("https://fonts.googleapis.com/")) {
+        callback({ redirectURL: `${APP_ORIGIN}/desktop-fonts/fonts.css` });
+        return;
+      }
+      callback({ cancel: true });
+    },
+  );
+
   // Check if settings exist, if not, create them
   if (!settings.hasSync("onlyLocalDefinitions")) {
-    settings.setSync({
-      onlyLocalDefinitions: false,
-      allowUnknownDevices: false,
-    });
+    settings.setSync("onlyLocalDefinitions", false);
+  }
+  if (!settings.hasSync("allowedUnknownDevices")) {
+    settings.setSync("allowedUnknownDevices", []);
   }
 
   await startServer();
   await createWindow();
   void downloadKeyboardDefinitions();
+
   // Portable Windows packages have no Squirrel installer to run updates.
   if (
     process.platform !== "win32" ||
