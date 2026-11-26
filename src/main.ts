@@ -157,7 +157,6 @@ const createWindow = async () => {
     minWidth: 1024,
   });
 
-  const dismissedDevices = new Set<number>();
   let pickerOpen = false;
 
   // Register a device permission handler that allows access to the devices registered in the VIA definitions files
@@ -195,12 +194,7 @@ const createWindow = async () => {
     callback: (deviceId?: string) => void,
   ) => {
     event.preventDefault();
-    const candidates = deviceList.filter(
-      (device) =>
-        !dismissedDevices.has(
-          getVendorProductId(device.vendorId, device.productId),
-        ),
-    );
+    const candidates = deviceList;
     if (pickerOpen || mainWindow.isDestroyed() || candidates.length === 0) {
       callback();
       return;
@@ -213,8 +207,7 @@ const createWindow = async () => {
         type: "question",
         title: "Unknown USB Keyboard",
         message: "Allow VIA Desktop to access an unknown keyboard?",
-        detail:
-          "This keyboard is not in VIA's built-in device list. Select a device to allow it, or Cancel to ignore it for this session.",
+        detail: "Select a keyboard to allow VIA Desktop to configure it.",
         buttons: [
           ...candidates.map(
             ({ name, vendorId, productId }) =>
@@ -237,11 +230,6 @@ const createWindow = async () => {
         previouslyAllowedDevices.add(vendorProductId);
         callback(chosen.deviceId);
       } else {
-        for (const device of candidates) {
-          dismissedDevices.add(
-            getVendorProductId(device.vendorId, device.productId),
-          );
-        }
         callback();
       }
     } catch {
@@ -275,7 +263,6 @@ const createWindow = async () => {
     async () => {
       await settings.set("allowedUnknownDevices", []);
       previouslyAllowedDevices.clear();
-      dismissedDevices.clear();
       await mainWindow.loadURL(APP_ORIGIN);
     },
   );

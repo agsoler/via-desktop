@@ -1,0 +1,314 @@
+diff --git a/src/components/panes/configure.tsx b/src/components/panes/configure.tsx
+index 0c6e7f2..93ba3bf 100644
+--- a/src/components/panes/configure.tsx
++++ b/src/components/panes/configure.tsx
+@@ -1,6 +1,7 @@
+ import React, {useState, useEffect} from 'react';
+-import {faPlus} from '@fortawesome/free-solid-svg-icons';
++import {faChevronDown, faPlus} from '@fortawesome/free-solid-svg-icons';
+ import styled from 'styled-components';
++import {Link} from 'wouter';
+ import ChippyLoader from '../chippy-loader';
+ import LoadingText from '../loading-text';
+ import {CenterPane, ConfigureBasePane} from './pane';
+@@ -26,7 +27,10 @@ import {Badge} from './configure-panes/badge';
+ import {HostKeyboardLayoutBadge} from './configure-panes/host-keyboard-layout-badge';
+ import {AccentButtonLarge} from '../inputs/accent-button';
+ import {useAppSelector} from 'src/store/hooks';
+-import {getSelectedDefinition} from 'src/store/definitionsSlice';
++import {
++  getCustomDefinitions,
++  getSelectedDefinition,
++} from 'src/store/definitionsSlice';
+ import {
+   clearSelectedKey,
+   getLoadProgress,
+@@ -34,10 +38,14 @@ import {
+   setConfigureKeyboardIsSelectable,
+ } from 'src/store/keymapSlice';
+ import {useDispatch} from 'react-redux';
+-import {reloadConnectedDevices} from 'src/store/devicesThunks';
++import {authorizeDevice, reloadConnectedDevices} from 'src/store/devicesThunks';
+ import {getV3MenuComponents} from 'src/store/menusSlice';
+ import {getIsMacroFeatureSupported} from 'src/store/macrosSlice';
+-import {getConnectedDevices, getSupportedIds} from 'src/store/devicesSlice';
++import {
++  getConnectedDevices,
++  getForceAuthorize,
++  getSupportedIds,
++} from 'src/store/devicesSlice';
+ import {isElectron} from 'src/utils/running-context';
+ import {useAppDispatch} from 'src/store/hooks';
+ import {MenuTooltip} from '../inputs/tooltip';
+@@ -181,9 +189,15 @@ const Loader: React.FC<{
+   const theme = useAppSelector(getSelectedTheme);
+
+   const connectedDevices = useAppSelector(getConnectedDevices);
++  const forceAuthorize = useAppSelector(getForceAuthorize);
+   const supportedIds = useAppSelector(getSupportedIds);
++  const customDefinitions = useAppSelector(getCustomDefinitions);
++  const hasSavedDefinition =
++    isElectron && Object.keys(customDefinitions).length > 0;
+   const noSupportedIds = !Object.values(supportedIds).length;
+   const noConnectedDevices = !Object.values(connectedDevices).length;
++  const showApprovalHelp =
++    hasSavedDefinition && forceAuthorize && noConnectedDevices;
+   const [showButton, setShowButton] = useState<boolean>(false);
+
+   useEffect(() => {
+@@ -199,16 +213,50 @@ const Loader: React.FC<{
+
+   return (
+     <LoaderPane>
+-      {<ChippyLoader theme={theme} progress={loadProgress || null} />}
+-
+-      {(showButton || noConnectedDevices) && !noSupportedIds && !isElectron ? (
+-        <AccentButtonLarge onClick={() => dispatch(reloadConnectedDevices())}>
+-          {t('Authorize device')}
+-          <FontAwesomeIcon style={{marginLeft: '10px'}} icon={faPlus} />
+-        </AccentButtonLarge>
+-      ) : (
+-        <LoadingText isSearching={!selectedDefinition} />
+-      )}
++      <ChippyLoader theme={theme} progress={loadProgress || null} width={240} />
++
++      <DiscoveryStatus>
++        {(showButton || noConnectedDevices) && !noSupportedIds && !isElectron ? (
++          <AccentButtonLarge onClick={() => dispatch(reloadConnectedDevices())}>
++            {t('Authorize device')}
++            <FontAwesomeIcon style={{marginLeft: '10px'}} icon={faPlus} />
++          </AccentButtonLarge>
++        ) : (
++          <LoadingText isSearching={!selectedDefinition} />
++        )}
++        {!selectedDefinition && (
++          <DiscoveryHelp open={showApprovalHelp}>
++            <summary>
++              {t('Keyboard not showing up?')}
++              <FontAwesomeIcon icon={faChevronDown} aria-hidden="true" />
++            </summary>
++            <div>
++              {!hasSavedDefinition && (
++                <p>{t('Connect your keyboard with a USB data cable.')}</p>
++              )}
++              <p>
++                {hasSavedDefinition
++                  ? t('Your keyboard definition is loaded.')
++                  : t(
++                      'If your keyboard is missing from the VIA catalogue, load the manufacturer’s VIA JSON file.',
++                    )}
++              </p>
++              <HelpAction>
++                {hasSavedDefinition ? (
++                  <button
++                    type="button"
++                    onClick={() => dispatch(authorizeDevice())}
++                  >
++                    {t('Authorize device')}
++                  </button>
++                ) : (
++                  <Link href="/design">{t('Load Draft Definition')}</Link>
++                )}
++              </HelpAction>
++            </div>
++          </DiscoveryHelp>
++        )}
++      </DiscoveryStatus>
+     </LoaderPane>
+   );
+ };
+@@ -216,16 +264,101 @@ const Loader: React.FC<{
+ const LoaderPane = styled(CenterPane)`
+   display: flex;
+   align-items: center;
+-  justify-content: center;
+-  row-gap: 50px;
++  justify-content: safe center;
++  row-gap: 26px;
+   position: absolute;
+-  bottom: 50px;
++  height: auto;
++  bottom: 0;
+   top: 50px;
+   left: 0;
+   right: 0;
++  padding: 12px 20px;
+   z-index: 4;
+ `;
+
++const DiscoveryStatus = styled.div`
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  gap: 8px;
++  flex-shrink: 0;
++  max-width: 100%;
++  text-align: center;
++`;
++
++const DiscoveryHelp = styled.details`
++  width: min(460px, 100%);
++  color: var(--color_label-highlighted);
++  font-size: 14px;
++  line-height: 1.45;
++
++  summary {
++    display: flex;
++    width: fit-content;
++    align-items: center;
++    gap: 8px;
++    margin: 0 auto;
++    padding: 4px 8px;
++    border-radius: 4px;
++    cursor: pointer;
++  }
++
++  summary:hover {
++    background: var(--bg_control);
++  }
++
++  summary svg {
++    font-size: 10px;
++  }
++
++  &[open] summary svg {
++    transform: rotate(180deg);
++  }
++
++  > div {
++    margin-top: 6px;
++    padding: 10px 16px;
++    border: 1px solid var(--border_color_cell);
++    border-radius: 6px;
++    background: var(--bg_menu);
++    text-align: left;
++  }
++
++  p {
++    font-size: inherit;
++    margin: 0 0 6px;
++  }
++
++  summary:focus-visible,
++  a:focus-visible,
++  button:focus-visible {
++    outline: 2px solid var(--color_label-highlighted);
++    outline-offset: 2px;
++  }
++`;
++
++const HelpAction = styled.div`
++  display: flex;
++
++  a,
++  button {
++    color: inherit;
++    opacity: 1;
++    font-weight: 500;
++    text-decoration: underline;
++    text-underline-offset: 3px;
++    padding: 4px 0;
++  }
++
++  button {
++    border: 0;
++    background: transparent;
++    font: inherit;
++    font-weight: 500;
++    cursor: pointer;
++  }
++`;
++
+ export const ConfigurePane = () => {
+   const selectedDefinition = useAppSelector(getSelectedDefinition);
+   const loadProgress = useAppSelector(getLoadProgress);
+@@ -313,4 +446,4 @@ const ConfigureGrid = () => {
+       </Grid>
+     </>
+   );
+-};
+\ No newline at end of file
++};
+diff --git a/src/components/three-fiber/canvas-router.tsx b/src/components/three-fiber/canvas-router.tsx
+index 2ce80ce..b35c09d 100644
+--- a/src/components/three-fiber/canvas-router.tsx
++++ b/src/components/three-fiber/canvas-router.tsx
+@@ -18,7 +18,7 @@ import {
+   getCustomDefinitions,
+   getSelectedDefinition,
+ } from 'src/store/definitionsSlice';
+-import {reloadConnectedDevices} from 'src/store/devicesThunks';
++import {authorizeDevice, reloadConnectedDevices} from 'src/store/devicesThunks';
+ import {useAppDispatch, useAppSelector} from 'src/store/hooks';
+ import {
+   getConfigureKeyboardIsSelectable,
+@@ -30,6 +30,7 @@ import {
+   getSelectedTheme,
+ } from 'src/store/settingsSlice';
+ import {OVERRIDE_HID_CHECK} from 'src/utils/override';
++import {isElectron} from 'src/utils/running-context';
+ import {useSize} from 'src/utils/use-size';
+ import {Object3D, SpotLight as ThreeSpotLight} from 'three';
+ import {useLocation} from 'wouter';
+@@ -166,7 +167,11 @@ export const NonSuspenseCanvasRouter = () => {
+             {showAuthorizeButton ? (
+               !selectedDefinition ? (
+                 <AccentButtonLarge
+-                  onClick={() => dispatch(reloadConnectedDevices())}
++                  onClick={() =>
++                    dispatch(
++                      isElectron ? authorizeDevice() : reloadConnectedDevices(),
++                    )
++                  }
+                   style={{width: 'max-content'}}
+                 >
+                   Authorize device
+diff --git a/src/shims/node-hid.ts b/src/shims/node-hid.ts
+index d6b3556..8259c9f 100644
+--- a/src/shims/node-hid.ts
++++ b/src/shims/node-hid.ts
+@@ -3,6 +3,7 @@ import type {
+   ConnectedDevice,
+   WebVIADevice,
+ } from '../types/types';
++import {isElectron} from 'src/utils/running-context';
+
+ var lastWriteTimestamp = Date.now();
+ // This is a bit cray
+@@ -94,7 +95,8 @@ const ExtendedHID = {
+   devices: async (requestAuthorize = false) => {
+     let devices = await ExtendedHID.getFilteredDevices();
+     // TODO: This is a hack to avoid spamming the requestDevices popup
+-    if (devices.length === 0 || requestAuthorize) {
++    // On desktop, open the native picker only from an explicit user action.
++    if (!isElectron && (devices.length === 0 || requestAuthorize)) {
+       try {
+         await ExtendedHID.requestDevice();
+       } catch (e) {
+diff --git a/src/store/devicesThunks.ts b/src/store/devicesThunks.ts
+index 3232a1b..45caf91 100644
+--- a/src/store/devicesThunks.ts
++++ b/src/store/devicesThunks.ts
+@@ -43,7 +43,7 @@ import type {
+ } from 'src/types/types';
+ import {createRetry} from 'src/utils/retry';
+ import {extractDeviceInfo, logAppError} from './errorsSlice';
+-import {tryForgetDevice} from 'src/shims/node-hid';
++import {HID, tryForgetDevice} from 'src/shims/node-hid';
+ import {isAuthorizedDeviceConnected} from 'src/utils/type-predicates';
+ import {loadFirmwareVersion, loadKeycodesVersion} from './firmwareSlice';
+ import {loadDefinitionName} from './definitionNameSlice';
+@@ -261,6 +261,13 @@ export const reloadConnectedDevices =
+     }
+   };
+
++export const authorizeDevice = (): AppThunk => async (dispatch) => {
++  const device = await HID.requestDevice().catch(() => undefined);
++  if (device) {
++    await dispatch(reloadConnectedDevices());
++  }
++};
++
+ export const loadSupportedIds = (): AppThunk => async (dispatch) => {
+   await syncStore();
+   dispatch(updateSupportedIds(getSupportedIdsFromStore()));
